@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<orm x:schema="/nop/schema/orm/orm.xdef"
+     xmlns:x="/nop/schema/xdsl.xdef"
+     xmlns:i18n-en="i18n-en"
+     xmlns:ext="ext">
+
+    <dicts>
+        <dict name="erp/product-status" label="产品状态" valueType="string" i18n-en:label="Product Status">
+            <option code="ACTIVE" label="在售" i18n-en:label="Active"/>
+            <option code="INACTIVE" label="下架" i18n-en:label="Inactive"/>
+            <option code="DRAFT" label="草稿" i18n-en:label="Draft"/>
+        </dict>
+    </dicts>
+
+    <entities>
+        <entity name="erp.ErpProduct"
+                tableName="erp_product"
+                className="io.nop.orm.support.DynamicOrmEntity"
+                registerShortName="true"
+                displayName="产品"
+                i18n-en:displayName="Product"
+                createTimeProp="createdTime"
+                updateTimeProp="updatedTime">
+            <columns>
+                <column name="productId" code="product_id" propId="1" primary="true"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="32" tagSet="seq"
+                        displayName="产品ID" i18n-en:displayName="Product ID"/>
+                <column name="sku" code="sku" propId="2"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="64"
+                        mandatory="true" unique="true" tagSet="disp"
+                        displayName="SKU" i18n-en:displayName="SKU"/>
+                <column name="name" code="name" propId="3"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="200"
+                        mandatory="true" tagSet="like"
+                        displayName="名称" i18n-en:displayName="Name"/>
+                <column name="category" code="category" propId="4"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="128"
+                        displayName="分类" i18n-en:displayName="Category"/>
+                <column name="description" code="description" propId="5"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="1000"
+                        displayName="描述" i18n-en:displayName="Description"/>
+                <column name="unitPrice" code="unit_price" propId="6"
+                        stdDataType="decimal" stdSqlType="DECIMAL" precision="19" scale="2"
+                        mandatory="true" displayName="单价" i18n-en:displayName="Unit Price"/>
+                <column name="stockQuantity" code="stock_quantity" propId="7"
+                        stdDataType="int" stdSqlType="INTEGER"
+                        mandatory="true" displayName="库存数量" i18n-en:displayName="Stock Quantity"/>
+                <column name="status" code="status" propId="8"
+                        stdDataType="string" stdSqlType="VARCHAR" precision="32"
+                        mandatory="true" ext:dict="erp/product-status" defaultValue="ACTIVE"
+                        displayName="状态" i18n-en:displayName="Status"/>
+                <column name="createdTime" code="created_time" propId="9"
+                        stdDataType="timestamp" stdSqlType="TIMESTAMP"
+                        displayName="创建时间" i18n-en:displayName="Created Time"/>
+                <column name="updatedTime" code="updated_time" propId="10"
+                        stdDataType="timestamp" stdSqlType="TIMESTAMP"
+                        displayName="更新时间" i18n-en:displayName="Updated Time"/>
+            </columns>
+        </entity>
+    </entities>
+</orm>

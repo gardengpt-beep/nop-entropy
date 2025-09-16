@@ -1,0 +1,6 @@
+/com/company/erp/_module
+/com/company/erp/orm/app.orm.xml
+/com/company/erp/model/ErpProduct/_ErpProduct.xmeta
+/com/company/erp/model/ErpProduct/ErpProduct.xmeta
+/com/company/erp/model/ErpProduct/_ErpProduct.xbiz
+/com/company/erp/model/ErpProduct/ErpProduct.xbiz

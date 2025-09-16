@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<meta x:schema="/nop/schema/xmeta.xdef"
+      xmlns:x="/nop/schema/xdsl.xdef"
+      xmlns:i18n-en="i18n-en"
+      xmlns:ext="ext"
+      xmlns:graphql="graphql"
+      xmlns:xpl="xpl"
+      xmlns:meta-gen="meta-gen"
+      xmlns:ui="ui"
+      displayName="产品"
+      i18n-en:displayName="Product"
+      ext:model="orm">
+
+    <entityName>erp.ErpProduct</entityName>
+
+    <primaryKey>productId</primaryKey>
+
+    <displayProp>name</displayProp>
+
+    <x:gen-extends>
+        <meta-gen:DefaultMetaGenExtends xpl:lib="/nop/core/xlib/meta-gen.xlib"/>
+    </x:gen-extends>
+
+    <x:post-extends>
+        <meta-gen:DefaultMetaPostExtends xpl:lib="/nop/core/xlib/meta-gen.xlib"/>
+    </x:post-extends>
+
+    <props>
+        <prop name="productId" displayName="产品ID" i18n-en:displayName="Product ID"
+              propId="1" tagSet="seq" mandatory="true" queryable="true" sortable="true"
+              insertable="false" updatable="false" internal="true" ui:show="X">
+            <schema type="java.lang.String" precision="32"/>
+        </prop>
+        <prop name="sku" displayName="SKU" i18n-en:displayName="SKU"
+              propId="2" mandatory="true" queryable="true" sortable="true"
+              insertable="true" updatable="true" ui:show="C">
+            <schema type="java.lang.String" precision="64"/>
+        </prop>
+        <prop name="name" displayName="名称" i18n-en:displayName="Name"
+              propId="3" mandatory="true" queryable="true" sortable="true"
+              insertable="true" updatable="true" tagSet="like">
+            <schema type="java.lang.String" precision="200"/>
+        </prop>
+        <prop name="category" displayName="分类" i18n-en:displayName="Category"
+              propId="4" queryable="true" sortable="true"
+              insertable="true" updatable="true">
+            <schema type="java.lang.String" precision="128"/>
+        </prop>
+        <prop name="description" displayName="描述" i18n-en:displayName="Description"
+              propId="5" insertable="true" updatable="true" ui:show="SL">
+            <schema type="java.lang.String" precision="1000"/>
+        </prop>
+        <prop name="unitPrice" displayName="单价" i18n-en:displayName="Unit Price"
+              propId="6" mandatory="true" queryable="true" sortable="true"
+              insertable="true" updatable="true">
+            <schema type="java.math.BigDecimal" precision="19" scale="2"/>
+        </prop>
+        <prop name="stockQuantity" displayName="库存数量" i18n-en:displayName="Stock Quantity"
+              propId="7" mandatory="true" queryable="true" sortable="true"
+              insertable="true" updatable="true">
+            <schema type="java.lang.Integer"/>
+        </prop>
+        <prop name="status" displayName="状态" i18n-en:displayName="Status"
+              propId="8" mandatory="true" queryable="true" sortable="true"
+              insertable="true" updatable="true" defaultValue="ACTIVE">
+            <schema type="java.lang.String" dict="erp/product-status" precision="32"/>
+        </prop>
+        <prop name="createdTime" displayName="创建时间" i18n-en:displayName="Created Time"
+              propId="9" queryable="true" sortable="true"
+              insertable="false" updatable="false" ui:show="L">
+            <schema type="java.time.LocalDateTime"/>
+        </prop>
+        <prop name="updatedTime" displayName="更新时间" i18n-en:displayName="Updated Time"
+              propId="10" queryable="true" sortable="true"
+              insertable="false" updatable="false" ui:show="L">
+            <schema type="java.time.LocalDateTime"/>
+        </prop>
+    </props>
+</meta>
