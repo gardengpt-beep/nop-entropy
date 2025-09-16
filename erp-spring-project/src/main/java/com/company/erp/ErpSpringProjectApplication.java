@@ -1,12 +1,17 @@
 package com.company.erp;
 
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import com.company.erp.runtime.ModelDrivenErpEngine;
 
-@SpringBootApplication
+/**
+ * Entry point for the offline ERP demo. The application simply loads the
+ * metadata-driven engine so that it can be exercised manually or through the
+ * custom test harness.
+ */
 public class ErpSpringProjectApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(ErpSpringProjectApplication.class, args);
+        ModelDrivenErpEngine engine = new ModelDrivenErpEngine();
+        System.out.println("Model-driven ERP initialized with entity: "
+                + engine.describeProductEntity());
     }
 }
