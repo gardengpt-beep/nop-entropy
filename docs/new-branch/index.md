@@ -23,6 +23,7 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v1.13 | 2024-06-17 | 更新 `nop-sys-dao` 文档，标注监听器执行失败与重试更新失败分别记录 `nop.err.sys.process-event-fail`、`nop.err.sys.handle-process-event-error-fail`，并要求在证据矩阵与路线图采集对应日志及 `schedule_time/retry_times/event_status` 变化。 |
 | v1.11 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `MessageSendOptions` 仅提供 `delay`/`sendTimeout`/`cancelToken` 三个字段且仍被发送流程忽略，路线图热点与行动 #34 同步引入该类引用以提示采集实际日志。 |
 | v1.10 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `TopicMessage` 仅包含 `topic`/`message`、批量发送无法设置独立选项的事实与规则，路线图 `消息发送选项` 热点及行动 #34 同步强调需改用逐条发送或 payload 自编码；证据矩阵追加 `TopicMessage` 引用以支撑取证计划。 |
 | v1.09 | 2024-06-17 | 更新 `nop-sys-dao` 文档，记录 `SysDaoMessageService` 忽略 `MessageSendOptions`、所有本地发送都会回退数据库入库，并新增相关规则、用例与证据矩阵行，同时路线图提示验证事件表的时间戳/headers 是否保持默认值。 |
