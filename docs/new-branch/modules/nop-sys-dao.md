@@ -8,7 +8,7 @@
 5. `SysDaoNamingService` 把服务实例注册到 `NopSysServiceInstance` 表，续约时使用数据库估算时钟刷新 `updateTime` 并在查询服务列表时依赖相同阈值，但 `getInstances` 与 `cleanup` 仍使用本地 `System.currentTimeMillis()` 计算过滤/删除条件，因此需要保证节点时钟与数据库保持同步以免提前删除或长时间保留实例；metadata JSON 列最大 1000 字符、标签字符串列仅 100 字符且实例默认 `ephemeral=true`，需控制注册数据长度并按心跳周期续约以避免被清理；定时清理长时间未续约的临时节点，为基于数据库的注册中心提供落地实现。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/naming/SysDaoNamingService.java†L44-L163】【F:nop-sys/nop-sys-dao/src/main/resources/_vfs/nop/sys/orm/_app.orm.xml†L553-L589】【F:nop-cluster/nop-cluster-core/src/main/java/io/nop/cluster/discovery/ServiceInstance.java†L31-L110】
 6. `SysDaoResourceLockManager` 利用 `nop_sys_lock` 表实现数据库分布式锁，默认 1s 等待、10s 租期，续约通过 `tryResetLease` 自增版本并依赖数据库估算时钟，`saveNew` 将 `AppConfig.appName()` 与 `IServerAddrFinder`（默认回退 `NetHelper.findLocalIp()`）写入锁记录便于排查持有者，`isHoldingLock` 重新读取锁行确认持有者与版本，`releaseLock` 直接删除实体避免命中旧缓存；`forceUnlock` 走 `deleteById` 不做版本校验，仅适合人工兜底，需要确认锁已放弃后再调用。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/lock/SysDaoResourceLockManager.java†L39-L233】
 7. `SysDaoLeaderElector` 继承轮询选主基类，以 `nop_sys_cluster_leader` 表记录租期和 Epoch，遇到超时或 Epoch 不一致会重新发起选举。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/elector/SysDaoLeaderElector.java†L24-L238】
-8. `SysDaoMessageService` 轮询 `NopSysEvent` 表调度广播与非广播消息，默认 `RetryPolicy` 仅允许 2 次重试且至少延迟 10 秒，并通过 `LocalMessageService` 将数据库事件桥接到内存订阅与 `ack-` 前缀响应主题，需要 `<property>` 注入自定义策略与 `minProcessDelay` 才能缩短重试窗口。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L45-L312】【F:nop-message/nop-message-core/src/main/java/io/nop/message/core/local/LocalMessageService.java†L123-L200】【F:nop-commons/src/main/java/io/nop/commons/util/retry/RetryPolicy.java†L17-L180】【F:nop-api-core/src/main/java/io/nop/api/core/message/IMessageSubscriber.java†L10-L24】
+8. `SysDaoMessageService` 轮询 `NopSysEvent` 表调度广播与非广播消息，默认 `RetryPolicy` 仅允许 2 次重试且至少延迟 10 秒，并通过 `LocalMessageService` 将数据库事件桥接到内存订阅与 `ack-` 前缀响应主题，需要 `<property>` 注入自定义策略与 `minProcessDelay` 才能缩短重试窗口；在发送侧 `sendAsync` 与 `sendMultiAsync` 均忽略 `MessageSendOptions`，批量发送时会复用同一次数据库时钟生成的 `eventTime`，使批次内记录拥有一致的调度起点。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L45-L313】【F:nop-message/nop-message-core/src/main/java/io/nop/message/core/local/LocalMessageService.java†L123-L200】【F:nop-commons/src/main/java/io/nop/commons/util/retry/RetryPolicy.java†L17-L180】【F:nop-api-core/src/main/java/io/nop/api/core/message/IMessageSubscriber.java†L10-L24】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysEventHelper.java†L19-L69】
 
 ## 2. 术语与边界（中+英）
 | 术语 | 英文 | 边界说明 |
@@ -130,6 +130,7 @@
 48. IF 同一毫秒内雪花序列耗尽 12bit 序列空间 THEN `SnowflakeSequenceGeneator` 会在 `sequence==0` 时调用 `MathHelper.secureRandom().nextInt(100)` 重置序列并等待下一毫秒；进入新毫秒同样随机起始序列值，并在时钟回拨时通过 `tilNextMillis` 自旋等待，确保 ID 不重复且分散热点。【F:nop-dao/src/main/java/io/nop/dao/seq/SnowflakeSequenceGeneator.java†L76-L129】
 49. IF 通过 `IMessageService` 传入 `MessageSendOptions`（如延迟、消息属性） THEN 目前 `SysDaoMessageService.sendAsync/sendMultiAsync` 不会读取这些参数，只是根据 `SysEventHelper.toSysEvent` 写入主题、负载与数据库时钟，所有附加语义需要在消息体或系统事件字段中自行实现。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L262-L313】
 50. IF 需要在批量发送中为不同消息指定独立选项 THEN 目前无法通过 `TopicMessage` 承载，因为该类仅包含 `topic` 与 `message` 字段，`SysDaoMessageService.sendMultiAsync` 也不会读取批量级的 `MessageSendOptions`，必须改用逐条 `sendAsync` 或在消息负载内编码附加属性。【F:nop-api-core/src/main/java/io/nop/api/core/message/TopicMessage.java†L13-L31】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L262-L313】
+51. IF 需要让批量消息在数据库中携带不同的调度时间戳 THEN 不应使用 `sendMultiAsync`，因为其在循环前仅调用一次 `clock.getMaxCurrentTimeMillis()` 并把相同的 `eventTime` 应用于批次内所有事件；要获取独立 `eventTime` 必须改用多次 `sendAsync` 或在入库后手动调整调度字段。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L292-L303】
 
 ## 6. 流程（Text-Sequence）
 1. **序列生成**：加载/缓存 `SeqItem` → 若配置雪花或 UUID 则直接返回 → 否则判断缓存剩余 → 缓存不足时进入事务 `runLocal` 查询 `NopSysSequence`、锁定行、计算下一 `nextValue` 并更新数据库 → 返回当前值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
@@ -268,6 +269,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.49 | 2024-06-17 | 摘要补充 `sendAsync`/`sendMultiAsync` 忽略 `MessageSendOptions` 且批量共享同一 `eventTime`，新增 Rule 51 指示需要逐条发送才能得到独立时间戳。 |
 | v0.48 | 2024-06-17 | 记录 `TopicMessage` 仅包含 `topic`/`message`，批量发送无法携带独立选项，新增事实、规则、用例与证据矩阵条目，并在路线图提醒验证 `MessageSendOptions` 被忽略与批量时间戳共享的风险。 |
 | v0.47 | 2024-06-17 | 扩展默认 `RetryPolicy` 的指数退避与 30% 抖动细节，新增固定重试间隔的规则与证据矩阵更新，提醒覆盖 `RetryPolicy` 时需同步配置 `retryDelay/maxRetryDelay` 与抖动参数。 |
 | v0.46 | 2024-06-17 | 记录 `sendAsync`/`sendMultiAsync` 共用数据库估算时钟写入时间戳并在批量场景共享 `currentTime`，新增批量发送共用时间戳的事实、规则与证据矩阵条目，提示需要区分时间戳或顺序时改用逐条发送或包装 `ApiRequest`。 |
