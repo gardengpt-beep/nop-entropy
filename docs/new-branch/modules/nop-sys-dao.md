@@ -34,6 +34,7 @@
 - `runLocal` 统一通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 在全新 Session 和事务中刷新序列，避免调用方所在事务的缓存影响 `nextValue` 读取或更新，保证批量前移操作具有独立提交边界。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 - 序列生成器在 JVM 内维护两个缓存：`cache` 用于已存在的序列，`defaultCache` 以 500 条、60 秒 TTL 缓存缺失序列的占位项，并提供 `clearCache`/`removeCache` 方法便于在修改数据库配置后主动失效本地缓存；但公开方法仅清理 `cache`，`defaultCache` 需要等待 TTL 或重启应用才能失效，占位项会在此期间继续返回随机值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
 - `generateLong`/`generateString` 在命中缓存时按 `cacheSize` 与 `stepSize` 递增 `nextValue`，缓存耗尽后通过 `syncFromDb` 在新事务中锁定 `NopSysSequence`、更新 `nextValue` 并把首个值返回；`findSeqItem` 先查询本地缓存，再尝试 `defaultCache` 或数据库，缺失序列且 `useDefault=true` 时回退 `default` 序列，`useDefault=false` 则创建 `useUuid=true` 的占位项并缓存，后续直接返回随机值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
+- `syncFromDb` 会在 `session.lock` 之后调用 `SeqItem.update(seq)` 校正配置，把小于等于 0 的步长强制重置为 1，并重新记录数据库中的 `cacheSize`；写回 `nextValue` 时按照 `当前 nextValue + cacheSize*stepSize`（若 `cacheSize=0` 则仅加一步长）计算批量窗口，确保返回的首个值之后的一整批编号已经被预留，即便调用方外层事务回滚也不会回退。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L62-L204】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
 - `NopSysDaoConfigs` 暴露 `CFG_SYS_INIT_DEFAULT_SEQUENCE` 开关控制是否自动插入默认序列记录，默认开启。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/NopSysDaoConfigs.java†L15-L18】
 - `SysCodeRuleGenerator` 根据规则名加载 `NopSysCodeRule`，校验序列名后以 `ICodeRule` 模板拼接当前时间与序列值；缺失规则或序列名时分别抛出 `ERR_SYS_UNKNOWN_CODE_RULE` 与 `ERR_SYS_CODE_RULE_EMPTY_SEQ_NAME`。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/coderule/SysCodeRuleGenerator.java†L52-L69】
 - `SysDictLoader` 在 `PostConstruct` 时向 `DictProvider` 注册 `sys/` 前缀字典，`loadDict` 通过 `QueryBean` 联合 `NopSysDict`、`NopSysDictOption` 排序加载选项，并据 `isDeprecated` / `isInternal` 标记设定选项属性；若实体启用了租户且上下文缺少租户 ID，会跳过存在性检查以避免启动期失败。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/dict/SysDictLoader.java†L35-L91】
@@ -122,6 +123,7 @@
 43. IF 在运行期调整数据库序列配置或新建序列 THEN 必须调用 `SysSequenceGenerator.removeCache(seqName)` 或 `clearCache()` 清理主缓存，并知晓 `defaultCache` 无对外清除接口，只能等待 60 秒 TTL 或重启进程，否则 JVM 会继续复用旧的 `SeqItem`/占位项并返回缓存值或随机 UUID，导致新配置延迟生效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
 44. IF 外层业务在一个事务中获取序列后又显式回滚 THEN `SysSequenceGenerator.runLocal(syncFromDb)` 依旧会在独立 Session 与 `REQUIRES_NEW` 事务里提交 `nextValue` 的前移，回滚不会撤销已写入的序列值，调用方需提前接受跳号或在业务层设计补偿逻辑。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 45. IF 默认序列由 `lazyInit` 自动插入 THEN 该记录会以 `cacheSize=100`、`stepSize=1`、`seqType='seq'` 固定批量与步长，后续若要缩放缓存批次必须更新 `nop_sys_sequence` 表并刷新 JVM 缓存，否则 `syncFromDb` 仍按 100 个步长消费批量，可能在批量很大时造成值跳跃过多。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L146-L175】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
+46. IF 数据库把 `step_size` 设为 0 或负数 THEN `SeqItem.update` 会在装载时自动把步长重置为 1，并在 `cacheSize=0` 时退化为逐次从数据库取号；若需要非 1 步长必须在数据库正确配置正整数并配合 `cacheSize` 评估跳号范围。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L62-L206】
 
 ## 6. 流程（Text-Sequence）
 1. **序列生成**：加载/缓存 `SeqItem` → 若配置雪花或 UUID 则直接返回 → 否则判断缓存剩余 → 缓存不足时进入事务 `runLocal` 查询 `NopSysSequence`、锁定行、计算下一 `nextValue` 并更新数据库 → 返回当前值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
@@ -225,6 +227,7 @@
 | 雪花序列在同毫秒内随机初始化起始 sequence，溢出时自旋到下一毫秒 | `SnowflakeSequenceGeneator.generateLong` 在新毫秒或溢出时使用 `MathHelper.secureRandom()` 初始化 0–99 的序列值并在溢出时调用 `tilNextMillis` 等待下一毫秒；`MathHelper.secureRandom()` 默认返回单例 `DefaultSecureRandom`（`SecureRandom` 封装）且可通过 `registerSecureRandomImpl` 注入测试实现 | 中 | 记录一次连续高并发请求的序列值或调试日志，确认随机起始与自旋行为，并在需要可重复结果时尝试注入自定义安全随机器验证影响范围。 |
 | 默认序列起始值可通过 `nop.sys.seq.default-seq-init-next-value` 配置 | `SysSequenceGenerator.lazyInit` 在序列表为空时按配置插入默认记录，`setDefaultSeqInitNextValue` 读取 `@cfg:nop.sys.seq.default-seq-init-next-value` 注入起始值 | 中 | 在新环境执行 `lazyInit` 前后导出 `nop_sys_sequence` 表或调试日志，确认 `seq_name='default'` 的 `next_value` 与配置一致，并在需要重置时结合清缓存与更新脚本验证效果。 |
 | 默认序列插入时携带 `cacheSize=100`、`stepSize=1` | `addDefaultSequence` 通过 `runLocal` 保存默认记录时固定这两个字段并在并发时捕获重复键异常；`syncFromDb` 会沿用 `cacheSize` 批量更新 `nextValue` | 中 | 查看 `nop_sys_sequence` 表的默认记录或日志，确认 `cache_size/step_size` 是否仍为 100/1，并在修改后结合 `removeCache` 与等待 `defaultCache` TTL 的步骤验证新的批量设置是否生效。 |
+| 序列批量写回遵循 `cacheSize*stepSize`，非正步长会被自动归一到 1 | `SeqItem.update` 在装载时将 `stepSize<=0` 重置为 1，`syncFromDb` 依据 `cacheSize` 与步长计算新的 `nextValue` 批量窗口并更新数据库 | 中 | 记录 `cacheSize`、`stepSize` 配置与 `syncFromDb` 写回的 `next_value` 变化，验证步长归一逻辑与批量跳号范围，必要时结合 SQL/日志评估大批量配置的风险。 |
 | 序列同步在独立会话与新事务中执行，避免外层缓存污染 | `runLocal` 通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 执行 `syncFromDb`，刷新 `nextValue` 前会锁定 `NopSysSequence` 并在独立事务内提交 | 中 | 收集一次序列耗尽触发 `syncFromDb` 的调试日志，比较外层事务提交与回滚两种情况下的 `next_value` 变化，确认独立事务已生效并补充业务跳号补偿建议。 |
 | `defaultWaitTime/defaultLeaseTime` 支撑 `ResourceLock` 默认窗口 | `getDefaultWaitTime`/`getDefaultLeaseTime` 返回 Bean 属性值，`getLock`/`ResourceLock` 会在未传入参数时使用这些默认值 | 中 | 在差量 Bean 覆盖等待/租期并通过日志或锁表快照确认新的默认窗口已生效，必要时与调用处显式传参对照。 |
 | 服务实例心跳与清理取决于 `autoUpdateInterval`/`cleanupInterval` | `SysDaoNamingService` 以 `getMaxUpdateInterval()` 计算心跳上限（默认 60s 或自定义值 +1s），并在 `cleanup` 中删除超过 `2*getMaxUpdateInterval()` 的临时实例 | 中 | 收集一次注册/续约与 `cleanup` 的日志或数据库快照，验证自定义心跳配置与临时实例清理效果。 |
@@ -249,6 +252,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.42 | 2024-06-17 | 补充 `syncFromDb` 会按照 `cacheSize*stepSize` 计算批量窗口并把非正步长归一为 1，新增对应事实、规则与证据矩阵条目，提示修改步长或批量时需评估跳号范围并结合缓存失效策略。 |
 | v0.41 | 2024-06-17 | 标注 `addDefaultSequence` 插入默认记录时固定 `cacheSize=100`、`stepSize=1` 并在并发场景捕获重复键，新增相关事实、规则与证据项，提醒调整批量后需配合清缓存与等待 TTL。 |
 | v0.40 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 决定默认序列起始值，新增覆盖默认编号的规则与 Run-less 核对计划，并在证据矩阵加入配置验证条目。 |
 | v0.39 | 2024-06-17 | 记录 `MathHelper.secureRandom()` 懒加载 `DefaultSecureRandom` 的事实与可替换接口，提醒雪花序列随机起始依赖安全随机器；证据矩阵同步补充可注入自定义随机源的取证计划。 |

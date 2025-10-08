@@ -23,6 +23,7 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v1.04 | 2024-06-17 | 更新 `nop-sys-dao` 文档，说明 `syncFromDb` 会按 `cacheSize*stepSize` 写回批量窗口并把非正步长归一为 1，新增相关规则/证据矩阵条目，提示修改步长或批量时需同步规划缓存失效与跳号补偿；路线图同步提醒验证步长归一与批量日志。 |
 | v1.03 | 2024-06-17 | 补充 `addDefaultSequence` 插入默认记录时固定 `cacheSize=100`、`stepSize=1` 并捕获并发重复键，提示修改批量需配合清缓存与等待 `defaultCache` TTL；路线图同步提醒记录默认批量与缓存占位的取证日志。 |
 | v1.02 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 控制默认序列 `default` 的起始值，新增覆盖默认编号的规则、Run-less 核对计划与证据矩阵条目，并在路线图补充对应取证任务。 |
 | v1.01 | 2024-06-17 | 记录 `MathHelper.secureRandom()` 懒加载 `DefaultSecureRandom` 的实现，提示可通过 `registerSecureRandomImpl` 注入可控随机器，并更新证据矩阵/路线图以覆盖雪花随机起始的取证任务。 |
