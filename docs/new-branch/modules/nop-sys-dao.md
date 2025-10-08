@@ -232,6 +232,7 @@
 | 序列生成器支持默认初始化、Snowflake、UUID 三路线 | `SysSequenceGenerator` 源码 | 高 | 检查实际部署配置或日志，确认默认序列是否被插入及 workerId 配置来源。 |
 | 序列默认缓存 `defaultCache` 仅能等待 60 秒 TTL 或重启失效 | `SysSequenceGenerator` 创建 `defaultCache` 及 `clearCache/removeCache` 实现仅操作主缓存 | 中 | 记录缺失序列触发 UUID 占位→调用 `removeCache`→等待 60 秒 TTL 的返回值差异，佐证 fallback 缓存仍需自然过期。 |
 | 数据库消息服务依赖定时轮询与重试策略 | `SysDaoMessageService` 调度/重试实现 | 中 | 收集一次 `nop_sys_event` 处理日志，验证 `retryTimes` 与状态转移。 |
+| 消息处理失败会记录 `nop.err.sys.process-event-fail` 并按 `RetryPolicy` 回写字段 | `doProcessEvent` 捕获异常后输出 `nop.err.sys.process-event-fail`，`handleProcessEventError` 依据 `RetryPolicy` 更新 `scheduleTime/retryTimes`，回写失败则追加 `nop.err.sys.handle-process-event-error-fail` | 中 | 触发一次监听器异常，保留两条失败日志并对照 `nop_sys_event` 的 `schedule_time`、`retry_times`、`event_status` 变化，确认默认 2 次重试与终止条件生效。 |
 | `SysDaoResourceLockManager` 过期判定符号反转 | `isExpired` 使用 `expireAt >= clock.getMaxCurrentTimeMillis()`，与租约写入逻辑组合后允许删除未过期锁、保留已过期锁 | 高 | 依照 Run-less 时间轴（Step1–Step4）撰写缺陷描述并补充串行化/外部互斥规避方案，同时跟踪官方修复。 |
 | 锁续约会自增版本并依赖数据库估算时钟 | `tryResetLease` 使用 `dao.getDbEstimatedClock()` 计算新的 `expireAt`，`SQL` 设置 `version+1` 并仅在返回 1 行时续约成功 | 中 | 记录一次成功/失败的 `tryResetLease` 调用日志，确认续约后需刷新 `IResourceLockState`，失败则重新竞争锁。 |
 | 锁持有校验与释放依赖版本一致性 | `isHoldingLock` 通过新 Session 重读行并比较 `lockerId`/`version`，`releaseLock` 直接删除实体，若版本落后则删除失败 | 中 | 捕获一次 `isHoldingLock` 成功/失败与 `releaseLock` 的日志，验证刷新本地 `lockState` 后释放才不会误删他人锁。 |
@@ -270,6 +271,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.50 | 2024-06-17 | 证据矩阵新增“消息处理失败”行，指引采集 `nop.err.sys.process-event-fail`/`nop.err.sys.handle-process-event-error-fail` 与 `schedule_time/retry_times/event_status` 对照日志。 |
 | v0.49 | 2024-06-17 | 摘要补充 `sendAsync`/`sendMultiAsync` 忽略 `MessageSendOptions` 且批量共享同一 `eventTime`，新增 Rule 51 指示需要逐条发送才能得到独立时间戳。 |
 | v0.48 | 2024-06-17 | 记录 `TopicMessage` 仅包含 `topic`/`message`，批量发送无法携带独立选项，新增事实、规则、用例与证据矩阵条目，并在路线图提醒验证 `MessageSendOptions` 被忽略与批量时间戳共享的风险。 |
 | v0.47 | 2024-06-17 | 扩展默认 `RetryPolicy` 的指数退避与 30% 抖动细节，新增固定重试间隔的规则与证据矩阵更新，提醒覆盖 `RetryPolicy` 时需同步配置 `retryDelay/maxRetryDelay` 与抖动参数。 |
