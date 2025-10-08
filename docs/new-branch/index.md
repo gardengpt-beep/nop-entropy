@@ -23,6 +23,7 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v1.03 | 2024-06-17 | 补充 `addDefaultSequence` 插入默认记录时固定 `cacheSize=100`、`stepSize=1` 并捕获并发重复键，提示修改批量需配合清缓存与等待 `defaultCache` TTL；路线图同步提醒记录默认批量与缓存占位的取证日志。 |
 | v1.02 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 控制默认序列 `default` 的起始值，新增覆盖默认编号的规则、Run-less 核对计划与证据矩阵条目，并在路线图补充对应取证任务。 |
 | v1.01 | 2024-06-17 | 记录 `MathHelper.secureRandom()` 懒加载 `DefaultSecureRandom` 的实现，提示可通过 `registerSecureRandomImpl` 注入可控随机器，并更新证据矩阵/路线图以覆盖雪花随机起始的取证任务。 |
 | v1.00 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充雪花序列在同毫秒内随机起始 sequence、支持通过 `nop.sys.seq.snowflake-worker-id` 显式覆盖哈希 workerId 的规则，并在路线图新增采集默认 workerId/hostId 对照与雪花取值取证任务。 |

@@ -26,6 +26,7 @@
 - `app.orm.xml` 为 `nop-sys` 模块设定 Maven 坐标、默认方言、领域字典和十余个实体，包括序列、字典、编码规则、变量、通知模板、扩展字段、分布式锁、选主表、事件队列、服务实例、变更日志与标签等基础能力，为系统级服务提供统一 schema。【F:nop-sys/nop-sys-dao/src/main/resources/_vfs/nop/sys/orm/_app.orm.xml†L1-L622】
 - `app-dao.beans.xml` 将系统级 Bean 注入 IoC：序列生成器启用 `lazyInit` 自动补齐默认序列，编码规则生成器声明为默认实现，资源锁管理器、选主器、消息服务根据配置开关注册；同时暴露 `SysDictLoader`、`SysI18nMessageLoader` 等加载器供平台启动时执行。【F:nop-sys/nop-sys-dao/src/main/resources/_vfs/nop/sys/beans/app-dao.beans.xml†L2-L38】
 - `SysSequenceGenerator` 通过 `@InjectValue` 读取雪花算法 workerId 和默认起始值；若 `nop.sys.init-default-sequence` 为真，会在租户 0 上检查序列表并插入默认记录，生成时优先使用缓存批次，必要时回源数据库并锁表更新下一跳。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L44-L239】
+- `addDefaultSequence` 在租户 `0` 环境下通过 `ContextProvider.runWithTenant` + `runLocal` 插入缺省记录，默认设置 `cacheSize=100`、`stepSize=1`、`seqType="seq"`、`seqName="default"` 并捕获并发插入导致的重复键异常，确保默认序列具备 100 个批量缓存且在多实例启动时不会重复写入。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L138-L175】
 - `nop.sys.seq.default-seq-init-next-value` 决定默认序列 `default` 的初始 `nextValue`，`lazyInit` 在发现序列表为空时会带着该起始值插入基线记录，便于首次生成就对齐期望编号。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L104-L164】
 - 当未显式配置 `nop.sys.seq.snowflake-worker-id` 时，`afterPropertiesSet` 会先读取 `CFG_HOST_ID`，若为空则回退 `NetHelper.findLocalIp()`，再使用 `HashHelper.murmur3_32` 对标识取模 1024 生成稳定 workerId，保证 Snowflake 序列在同一 hostId 下保持一致。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L126-L135】
 - `SnowflakeSequenceGeneator` 在同一毫秒内使用 `MathHelper.secureRandom()` 初始化 0–99 的起始序列值，若同毫秒内 sequence 溢出会再次随机并自旋到下一毫秒，确保突发请求分布在多个序列槽位并降低碰撞概率。【F:nop-dao/src/main/java/io/nop/dao/seq/SnowflakeSequenceGeneator.java†L45-L109】
@@ -120,6 +121,7 @@
 42. IF 序列未在数据库配置且调用方设置 `useDefault=true` THEN `findSeqItem` 会回退 `default` 序列并重用其缓存；若 `useDefault=false` 则创建 `useUuid=true` 的占位项，后续 `generateLong/String` 返回随机值，需确保关键业务显式配置序列或开启默认回退。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
 43. IF 在运行期调整数据库序列配置或新建序列 THEN 必须调用 `SysSequenceGenerator.removeCache(seqName)` 或 `clearCache()` 清理主缓存，并知晓 `defaultCache` 无对外清除接口，只能等待 60 秒 TTL 或重启进程，否则 JVM 会继续复用旧的 `SeqItem`/占位项并返回缓存值或随机 UUID，导致新配置延迟生效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
 44. IF 外层业务在一个事务中获取序列后又显式回滚 THEN `SysSequenceGenerator.runLocal(syncFromDb)` 依旧会在独立 Session 与 `REQUIRES_NEW` 事务里提交 `nextValue` 的前移，回滚不会撤销已写入的序列值，调用方需提前接受跳号或在业务层设计补偿逻辑。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
+45. IF 默认序列由 `lazyInit` 自动插入 THEN 该记录会以 `cacheSize=100`、`stepSize=1`、`seqType='seq'` 固定批量与步长，后续若要缩放缓存批次必须更新 `nop_sys_sequence` 表并刷新 JVM 缓存，否则 `syncFromDb` 仍按 100 个步长消费批量，可能在批量很大时造成值跳跃过多。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L146-L175】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 
 ## 6. 流程（Text-Sequence）
 1. **序列生成**：加载/缓存 `SeqItem` → 若配置雪花或 UUID 则直接返回 → 否则判断缓存剩余 → 缓存不足时进入事务 `runLocal` 查询 `NopSysSequence`、锁定行、计算下一 `nextValue` 并更新数据库 → 返回当前值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
@@ -222,6 +224,7 @@
 | 雪花序列 workerId 默认由 hostId/IP 哈希 1024 得出 | `afterPropertiesSet` 在 workerId 为 0 时读取 `CFG_HOST_ID`，空值回退本机 IP，再通过 `HashHelper.murmur3_32` 取模 1024 生成 workerId。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L126-L135】【F:nop-api-core/src/main/java/io/nop/api/core/ApiConfigs.java†L25-L36】【F:nop-commons/src/main/java/io/nop/commons/crypto/HashHelper.java†L159-L165】 | 中 | 收集实际部署的 `CFG_HOST_ID`/IP 与启动日志，核对默认 workerId 是否稳定一致，并评估多节点哈希碰撞风险或是否需要显式配置。 |
 | 雪花序列在同毫秒内随机初始化起始 sequence，溢出时自旋到下一毫秒 | `SnowflakeSequenceGeneator.generateLong` 在新毫秒或溢出时使用 `MathHelper.secureRandom()` 初始化 0–99 的序列值并在溢出时调用 `tilNextMillis` 等待下一毫秒；`MathHelper.secureRandom()` 默认返回单例 `DefaultSecureRandom`（`SecureRandom` 封装）且可通过 `registerSecureRandomImpl` 注入测试实现 | 中 | 记录一次连续高并发请求的序列值或调试日志，确认随机起始与自旋行为，并在需要可重复结果时尝试注入自定义安全随机器验证影响范围。 |
 | 默认序列起始值可通过 `nop.sys.seq.default-seq-init-next-value` 配置 | `SysSequenceGenerator.lazyInit` 在序列表为空时按配置插入默认记录，`setDefaultSeqInitNextValue` 读取 `@cfg:nop.sys.seq.default-seq-init-next-value` 注入起始值 | 中 | 在新环境执行 `lazyInit` 前后导出 `nop_sys_sequence` 表或调试日志，确认 `seq_name='default'` 的 `next_value` 与配置一致，并在需要重置时结合清缓存与更新脚本验证效果。 |
+| 默认序列插入时携带 `cacheSize=100`、`stepSize=1` | `addDefaultSequence` 通过 `runLocal` 保存默认记录时固定这两个字段并在并发时捕获重复键异常；`syncFromDb` 会沿用 `cacheSize` 批量更新 `nextValue` | 中 | 查看 `nop_sys_sequence` 表的默认记录或日志，确认 `cache_size/step_size` 是否仍为 100/1，并在修改后结合 `removeCache` 与等待 `defaultCache` TTL 的步骤验证新的批量设置是否生效。 |
 | 序列同步在独立会话与新事务中执行，避免外层缓存污染 | `runLocal` 通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 执行 `syncFromDb`，刷新 `nextValue` 前会锁定 `NopSysSequence` 并在独立事务内提交 | 中 | 收集一次序列耗尽触发 `syncFromDb` 的调试日志，比较外层事务提交与回滚两种情况下的 `next_value` 变化，确认独立事务已生效并补充业务跳号补偿建议。 |
 | `defaultWaitTime/defaultLeaseTime` 支撑 `ResourceLock` 默认窗口 | `getDefaultWaitTime`/`getDefaultLeaseTime` 返回 Bean 属性值，`getLock`/`ResourceLock` 会在未传入参数时使用这些默认值 | 中 | 在差量 Bean 覆盖等待/租期并通过日志或锁表快照确认新的默认窗口已生效，必要时与调用处显式传参对照。 |
 | 服务实例心跳与清理取决于 `autoUpdateInterval`/`cleanupInterval` | `SysDaoNamingService` 以 `getMaxUpdateInterval()` 计算心跳上限（默认 60s 或自定义值 +1s），并在 `cleanup` 中删除超过 `2*getMaxUpdateInterval()` 的临时实例 | 中 | 收集一次注册/续约与 `cleanup` 的日志或数据库快照，验证自定义心跳配置与临时实例清理效果。 |
@@ -246,6 +249,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.41 | 2024-06-17 | 标注 `addDefaultSequence` 插入默认记录时固定 `cacheSize=100`、`stepSize=1` 并在并发场景捕获重复键，新增相关事实、规则与证据项，提醒调整批量后需配合清缓存与等待 TTL。 |
 | v0.40 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 决定默认序列起始值，新增覆盖默认编号的规则与 Run-less 核对计划，并在证据矩阵加入配置验证条目。 |
 | v0.39 | 2024-06-17 | 记录 `MathHelper.secureRandom()` 懒加载 `DefaultSecureRandom` 的事实与可替换接口，提醒雪花序列随机起始依赖安全随机器；证据矩阵同步补充可注入自定义随机源的取证计划。 |
 | v0.38 | 2024-06-17 | 记录雪花序列默认 workerId 基于 `CFG_HOST_ID`/本机 IP 哈希取模 1024 的逻辑，并新增确保 hostId 稳定与采集默认取值的行动指引；证据矩阵同步补充 workerId 验证计划。 |
