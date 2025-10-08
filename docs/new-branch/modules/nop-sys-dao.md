@@ -209,6 +209,8 @@
 41. **Run-less（序列独立事务验证）**：Given 外层事务中连续调用 `generateLong("Order", true)` 消耗缓存并制造 `syncFromDb` When 外层事务随后回滚 Then 因 `runLocal(syncFromDb)` 在独立 Session 与 `REQUIRES_NEW` 事务里提交了 `nextValue` 前移，回滚后再次调用仍返回递增值；需记录 `next_value` 变更与调试日志以规划跳号补偿策略。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 42. **正向（覆盖默认序列起始值）**：Given 业务希望默认序列 `default` 从 1000 开始编号 When 在配置中心设置 `nop.sys.seq.default-seq-init-next-value=1000` 并触发 `SysSequenceGenerator.lazyInit` Then 插入的默认序列记录会以 1000 作为 `nextValue`，后续回退到 `default` 的业务也从新起点递增，确保线下同步或历史迁移后的编号连续。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L104-L164】
 43. ⚠️ **Run-less（默认序列起始值核对）**：Given 预生产环境通过配置修改了 `nop.sys.seq.default-seq-init-next-value` When 在无默认记录的租户执行 `lazyInit` 并导出 `nop_sys_sequence` 表 Then 可以对比 `seq_name='default'` 的 `next_value` 与配置值，若存在历史残留需记录差异并制定补齐或重新初始化方案。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L104-L164】
+44. **反向（步长配置为 0 被重置）**：Given DBA 误把 `NopSysSequence.step_size` 更新为 0 When `SysSequenceGenerator` 下一次通过 `syncFromDb` 装载该序列 Then `SeqItem.update` 会自动把步长改回 1 并按照 `cacheSize*1` 计算批量窗口，日志不会提示配置错误但会导致跳号小于预期，应在 SQL 维护脚本中避免写入非正值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L62-L206】
+45. ⚠️ **Run-less（步长归一影响评估）**：Given 计划把序列批量扩大为 `cacheSize=500`、`stepSize=0` 以观测归一行为 When 依次导出缓存耗尽前后的 `nop_sys_sequence.next_value` 与 `SysSequenceGenerator` 调试日志 Then 可确认数据库写回依旧按步长 1 递增，帮助评估是否需要修正维护脚本并在上线前补充批量配置检查表。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L62-L206】
 ## 10. 证据矩阵
 | 结论 | 证据 | 置信度 | Run-less 验证计划 |
 | --- | --- | --- | --- |
@@ -252,6 +254,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.43 | 2024-06-17 | 补充步长归一的反向用例与 Run-less 计划，提醒维护脚本写入 `step_size=0` 会被重置为 1，需结合缓存刷新与批量评估，证据矩阵同步要求记录归一日志。 |
 | v0.42 | 2024-06-17 | 补充 `syncFromDb` 会按照 `cacheSize*stepSize` 计算批量窗口并把非正步长归一为 1，新增对应事实、规则与证据矩阵条目，提示修改步长或批量时需评估跳号范围并结合缓存失效策略。 |
 | v0.41 | 2024-06-17 | 标注 `addDefaultSequence` 插入默认记录时固定 `cacheSize=100`、`stepSize=1` 并在并发场景捕获重复键，新增相关事实、规则与证据项，提醒调整批量后需配合清缓存与等待 TTL。 |
 | v0.40 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 决定默认序列起始值，新增覆盖默认编号的规则与 Run-less 核对计划，并在证据矩阵加入配置验证条目。 |

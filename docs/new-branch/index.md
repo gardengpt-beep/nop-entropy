@@ -107,6 +107,7 @@
 | v0.25 | 2024-06-11 | 梳理配置热更新链路与 `nop.config.vars` 调试日志，补强 `ConfigChangeApplier` 串行机制与异常排查指引。 |
 | v0.24 | 2024-06-11 | 记录 `OrmSessionFactoryBean.refreshConfig` 的缓存刷新机制与命名策略，补充配置热更新影响范围。 |
 | v0.24 | 2024-06-17 | 收集 `_dump/merged-app.beans.xml` 调试快照，标注 `LOC` 注释映射并更新 `nop-ioc` 文档与路线图的差量验证指引。 |
+| v1.04 | 2024-06-17 | 补充 `nop-sys-dao` 序列批量归一规则与缓存占位风险，新增步长归一 Run-less 计划和调试行动。 |
 | v0.23 | 2024-06-11 | 补充 `nop-biz` 缓存/事务装饰器与 `DynCodeGen` 动态模型提供器证据，标注监听触发待验证。 |
 | v0.22 | 2024-06-10 | 梳理 `nop-biz` BizObject 构建流程、BizAction 执行链与装饰器机制，补齐业务服务入口研究。 |
 | v0.21 | 2024-06-10 | 补充 Router JSON 字段结构、首匹配策略与 `enabled` 标志行为，完善灰度停用边界用例。 |
