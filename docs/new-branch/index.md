@@ -23,6 +23,9 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v1.02 | 2024-06-17 | 说明 `nop.sys.seq.default-seq-init-next-value` 控制默认序列 `default` 的起始值，新增覆盖默认编号的规则、Run-less 核对计划与证据矩阵条目，并在路线图补充对应取证任务。 |
+| v1.01 | 2024-06-17 | 记录 `MathHelper.secureRandom()` 懒加载 `DefaultSecureRandom` 的实现，提示可通过 `registerSecureRandomImpl` 注入可控随机器，并更新证据矩阵/路线图以覆盖雪花随机起始的取证任务。 |
+| v1.00 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充雪花序列在同毫秒内随机起始 sequence、支持通过 `nop.sys.seq.snowflake-worker-id` 显式覆盖哈希 workerId 的规则，并在路线图新增采集默认 workerId/hostId 对照与雪花取值取证任务。 |
 | v0.99 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充雪花序列在未配置 workerId 时会基于 `CFG_HOST_ID`/本机 IP 哈希取模 1024 生成稳定 workerId，并在路线图新增记录默认取值与碰撞风险的行动条目。 |
 | v0.98 | 2024-06-17 | 更新 `nop-sys-dao` 文档，增加 `runLocal` 外层回滚验证的 Run-less 用例与证据矩阵条目，提醒记录 `next_value` 前后对比并规划补偿；路线图同步细化序列独立事务与缓存占位取证任务。 |
 | v0.97 | 2024-06-17 | 更新 `nop-sys-dao` 文档，新增 `runLocal` 独立事务不受外层回滚影响的规则，并将序列缓存 Run-less 刷新计划前置到证据矩阵；路线图补充验证独立事务提交与缓存占位失效窗口的行动。 |
