@@ -23,6 +23,9 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v1.11 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `MessageSendOptions` 仅提供 `delay`/`sendTimeout`/`cancelToken` 三个字段且仍被发送流程忽略，路线图热点与行动 #34 同步引入该类引用以提示采集实际日志。 |
+| v1.10 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `TopicMessage` 仅包含 `topic`/`message`、批量发送无法设置独立选项的事实与规则，路线图 `消息发送选项` 热点及行动 #34 同步强调需改用逐条发送或 payload 自编码；证据矩阵追加 `TopicMessage` 引用以支撑取证计划。 |
+| v1.09 | 2024-06-17 | 更新 `nop-sys-dao` 文档，记录 `SysDaoMessageService` 忽略 `MessageSendOptions`、所有本地发送都会回退数据库入库，并新增相关规则、用例与证据矩阵行，同时路线图提示验证事件表的时间戳/headers 是否保持默认值。 |
 | v1.08 | 2024-06-17 | 更新 `nop-sys-dao` 文档，扩展默认 `RetryPolicy` 的指数退避与 30% 抖动细节，新增固定重试间隔的规则与证据矩阵更新，提醒覆盖 `retryDelay/maxRetryDelay` 与抖动参数以获得可预测的调度。 |
 | v1.07 | 2024-06-17 | 补充“默认序列三阶段采集模板”，细化 defaultCache 60 秒 TTL 的 Run-less 步骤并提示及时更新证据矩阵。 |
 | v1.06 | 2024-06-17 | 更新 `nop-sys-dao` 文档，记录雪花序列在同毫秒内随机重置序列起点并在溢出时自旋等待下一毫秒，新添 Run-less 采样计划与证据矩阵条目，路线图同步提醒采集随机序列样本。 |
