@@ -113,6 +113,7 @@
 39. IF 通过 `SysDaoMessageService.sendAsync` 提交的是 `ApiRequest` 消息 THEN `SysEventHelper.toSysEvent` 会复制 headers、selection、data、`bizKey`/`bizObjName` 并基于 `bizObjName|bizKey` 计算稳定的 `partitionIndex`，否则 `sendAsync` 会使用 `MathHelper.random()` 生成随机分区并仅存储消息类名，业务若需要幂等顺序应确保带 `ApiRequest` 元数据并设置 `ApiHeaders`。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L266-L304】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysEventHelper.java†L19-L69】
 40. IF 序列未在数据库配置且调用方设置 `useDefault=true` THEN `findSeqItem` 会回退 `default` 序列并重用其缓存；若 `useDefault=false` 则创建 `useUuid=true` 的占位项，后续 `generateLong/String` 返回随机值，需确保关键业务显式配置序列或开启默认回退。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
 41. IF 在运行期调整数据库序列配置或新建序列 THEN 必须调用 `SysSequenceGenerator.removeCache(seqName)` 或 `clearCache()` 清理主缓存，并知晓 `defaultCache` 无对外清除接口，只能等待 60 秒 TTL 或重启进程，否则 JVM 会继续复用旧的 `SeqItem`/占位项并返回缓存值或随机 UUID，导致新配置延迟生效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
+42. IF 外层业务在一个事务中获取序列后又显式回滚 THEN `SysSequenceGenerator.runLocal(syncFromDb)` 依旧会在独立 Session 与 `REQUIRES_NEW` 事务里提交 `nextValue` 的前移，回滚不会撤销已写入的序列值，调用方需提前接受跳号或在业务层设计补偿逻辑。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 
 ## 6. 流程（Text-Sequence）
 1. **序列生成**：加载/缓存 `SeqItem` → 若配置雪花或 UUID 则直接返回 → 否则判断缓存剩余 → 缓存不足时进入事务 `runLocal` 查询 `NopSysSequence`、锁定行、计算下一 `nextValue` 并更新数据库 → 返回当前值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
@@ -194,6 +195,7 @@
 38. **正向（默认序列兜底）**：Given 新业务尚未为 `Order` 定义专用序列且调用 `generateLong("Order", true)` When `findSeqItem` 未命中数据库记录 Then 会回退 `SeqItem("default")` 并返回默认序列的下一个值，保证流程不中断。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L207-L269】
 39. **反向（禁用默认导致随机值）**：Given 相同场景但调用 `generateString("Order", false)` When 数据库仍缺少 `Order` 序列 Then `findSeqItem` 会创建 `useUuid=true` 的占位项并缓存，后续生成的字符串均来自随机 UUID，不再保证递增语义，需尽快补齐专用序列。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L207-L269】
 40. **边界（缓存占位导致配置延迟生效）**：Given 某序列首次请求时未在数据库配置且 `findSeqItem` 将 `useUuid=true` 的占位项写入 `defaultCache` When 随后补充数据库配置但未调用 `removeCache(seqName)` Then JVM 会在 60 秒 TTL 内继续返回随机值；需在创建真实序列后手动清除缓存或等待 TTL 失效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L70】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
+41. **Run-less（序列独立事务验证）**：Given 外层事务中连续调用 `generateLong("Order", true)` 消耗缓存并制造 `syncFromDb` When 外层事务随后回滚 Then 因 `runLocal(syncFromDb)` 在独立 Session 与 `REQUIRES_NEW` 事务里提交了 `nextValue` 前移，回滚后再次调用仍返回递增值；需记录 `next_value` 变更与调试日志以规划跳号补偿策略。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
 ## 10. 证据矩阵
 | 结论 | 证据 | 置信度 | Run-less 验证计划 |
 | --- | --- | --- | --- |
@@ -208,7 +210,7 @@
 | `forceUnlock` 直接删除锁记录且不校验版本/持有者 | `forceUnlock` 通过 `orm().deleteById` 删除 `nop_sys_lock` 行，不比对版本或 `lockerId` | 中 | 在演练环境人工调用 `forceUnlock` 前后对比 `nop_sys_lock` 行与业务日志，评估兜底操作是否会打断仍在执行的任务。 |
 | 锁记录会写入应用名与持有者地址，便于追踪节点 | `saveNew` 使用 `AppConfig.appName()` 与 `IServerAddrFinder`/`NetHelper.findLocalIp()` 填充 `appId`、`holderAdder` 字段 | 中 | 收集一次自定义 `IServerAddrFinder` 或容器场景下的锁记录，确认数据库中的 `app_id`、`holder_adder` 与预期地址一致。 |
 | 缺失序列会被 `defaultCache` 缓存 60 秒并继续返回随机值 | `defaultCache` 以 500 条、60 秒 TTL 缓存占位项，`removeCache`/`clearCache` 可手动失效缓存，补齐数据库配置前的占位仍会 `useUuid=true` | 中 | 在缺少序列时调用 `generate*` 获取随机值，随后创建真实序列并调用 `removeCache`，比对新旧返回值与日志，确认缓存清理后能立即生效。 |
-| 序列同步在独立会话与新事务中执行，避免外层缓存污染 | `runLocal` 通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 执行 `syncFromDb`，刷新 `nextValue` 前会锁定 `NopSysSequence` 并在独立事务内提交 | 中 | 收集一次序列耗尽触发 `syncFromDb` 的调试日志，确认独立事务提交与外层事务隔离，并记录在外层事务回滚后序列值仍前移的影响与补救建议。 |
+| 序列同步在独立会话与新事务中执行，避免外层缓存污染 | `runLocal` 通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 执行 `syncFromDb`，刷新 `nextValue` 前会锁定 `NopSysSequence` 并在独立事务内提交 | 中 | 收集一次序列耗尽触发 `syncFromDb` 的调试日志，比较外层事务提交与回滚两种情况下的 `next_value` 变化，确认独立事务已生效并补充业务跳号补偿建议。 |
 | `defaultWaitTime/defaultLeaseTime` 支撑 `ResourceLock` 默认窗口 | `getDefaultWaitTime`/`getDefaultLeaseTime` 返回 Bean 属性值，`getLock`/`ResourceLock` 会在未传入参数时使用这些默认值 | 中 | 在差量 Bean 覆盖等待/租期并通过日志或锁表快照确认新的默认窗口已生效，必要时与调用处显式传参对照。 |
 | 服务实例心跳与清理取决于 `autoUpdateInterval`/`cleanupInterval` | `SysDaoNamingService` 以 `getMaxUpdateInterval()` 计算心跳上限（默认 60s 或自定义值 +1s），并在 `cleanup` 中删除超过 `2*getMaxUpdateInterval()` 的临时实例 | 中 | 收集一次注册/续约与 `cleanup` 的日志或数据库快照，验证自定义心跳配置与临时实例清理效果。 |
 | `cleanup` 使用本地系统时间推导删除阈值，漂移会改变清理窗口 | `cleanup` 直接调用 `System.currentTimeMillis()` 计算 `updateTime` 截止值，而 `registerInstance`/`getServices` 使用数据库估算时钟，节点时间超前会提前删除仍在续约窗口内的实例，滞后则延迟清理 | 中 | 对比数据库估算时钟与节点系统时间，记录漂移情况下的 `cleanup` 日志，确认是否提前或延后删除临时实例并更新规避策略。 |
@@ -232,6 +234,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.37 | 2024-06-17 | 补充 `runLocal` 独立事务回滚不回退序列的 Run-less 用例与规则，并提示记录外层事务回滚前后的 `next_value` 以规划补偿；同步强调序列缓存占位需要等待 TTL 失效。 |
 | v0.36 | 2024-06-17 | 明确 `removeCache` 仅清理主缓存、`defaultCache` 无公开清除接口，新增事实/规则以提醒需要等待 60 秒 TTL 或重启才能驱逐占位项；证据矩阵与路线图同步要求记录缓存失效窗口。 |
 | v0.35 | 2024-06-17 | 强调 `runLocal` 以新 Session/REQUIRES_NEW 事务刷新序列并新增“缓存占位延迟生效”用例、清缓存规则，提示修改数据库序列后需清理 JVM 缓存并关注独立事务前移的影响；证据矩阵同步加入独立事务与缓存清理取证计划。 |
 | v0.34 | 2024-06-17 | 补充 `defaultCache` 60 秒 TTL、`clearCache`/`removeCache` 缓存失效接口与“缓存占位导致配置延迟生效”边界用例，提醒在补齐数据库序列后需手动清理缓存；证据矩阵新增默认缓存验证计划。 |
