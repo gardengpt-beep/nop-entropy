@@ -27,7 +27,7 @@
 - `app-dao.beans.xml` 将系统级 Bean 注入 IoC：序列生成器启用 `lazyInit` 自动补齐默认序列，编码规则生成器声明为默认实现，资源锁管理器、选主器、消息服务根据配置开关注册；同时暴露 `SysDictLoader`、`SysI18nMessageLoader` 等加载器供平台启动时执行。【F:nop-sys/nop-sys-dao/src/main/resources/_vfs/nop/sys/beans/app-dao.beans.xml†L2-L38】
 - `SysSequenceGenerator` 通过 `@InjectValue` 读取雪花算法 workerId 和默认起始值；若 `nop.sys.init-default-sequence` 为真，会在租户 0 上检查序列表并插入默认记录，生成时优先使用缓存批次，必要时回源数据库并锁表更新下一跳。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L44-L195】
 - `runLocal` 统一通过 `ormTemplate.runInNewSession` + `transactionTemplate.runInTransaction(..., REQUIRES_NEW, …)` 在全新 Session 和事务中刷新序列，避免调用方所在事务的缓存影响 `nextValue` 读取或更新，保证批量前移操作具有独立提交边界。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L206-L239】
-- 序列生成器在 JVM 内维护两个缓存：`cache` 用于已存在的序列，`defaultCache` 以 500 条、60 秒 TTL 缓存缺失序列的占位项，并提供 `clearCache`/`removeCache` 方法便于在修改数据库配置后主动失效本地缓存。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L70】
+- 序列生成器在 JVM 内维护两个缓存：`cache` 用于已存在的序列，`defaultCache` 以 500 条、60 秒 TTL 缓存缺失序列的占位项，并提供 `clearCache`/`removeCache` 方法便于在修改数据库配置后主动失效本地缓存；但公开方法仅清理 `cache`，`defaultCache` 需要等待 TTL 或重启应用才能失效，占位项会在此期间继续返回随机值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
 - `generateLong`/`generateString` 在命中缓存时按 `cacheSize` 与 `stepSize` 递增 `nextValue`，缓存耗尽后通过 `syncFromDb` 在新事务中锁定 `NopSysSequence`、更新 `nextValue` 并把首个值返回；`findSeqItem` 先查询本地缓存，再尝试 `defaultCache` 或数据库，缺失序列且 `useDefault=true` 时回退 `default` 序列，`useDefault=false` 则创建 `useUuid=true` 的占位项并缓存，后续直接返回随机值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
 - `NopSysDaoConfigs` 暴露 `CFG_SYS_INIT_DEFAULT_SEQUENCE` 开关控制是否自动插入默认序列记录，默认开启。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/NopSysDaoConfigs.java†L15-L18】
 - `SysCodeRuleGenerator` 根据规则名加载 `NopSysCodeRule`，校验序列名后以 `ICodeRule` 模板拼接当前时间与序列值；缺失规则或序列名时分别抛出 `ERR_SYS_UNKNOWN_CODE_RULE` 与 `ERR_SYS_CODE_RULE_EMPTY_SEQ_NAME`。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/coderule/SysCodeRuleGenerator.java†L52-L69】
@@ -110,7 +110,7 @@
 36. IF 未在调用处显式传入等待/租期并希望统一放大互斥窗口 THEN 应通过 `<property name="defaultWaitTime/defaultLeaseTime">` 覆盖 `SysDaoResourceLockManager` 的 Bean 属性，使 `getLock()` 与 `ResourceLock` 使用新的默认值；否则仍会回退到 1 秒等待/10 秒租期，长事务易在默认窗口内超时返回 `null`。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/lock/SysDaoResourceLockManager.java†L38-L123】
 37. IF 通过 `SysDaoMessageService.sendAsync` 提交的是 `ApiRequest` 消息 THEN `SysEventHelper.toSysEvent` 会复制 headers、selection、data、`bizKey`/`bizObjName` 并基于 `bizObjName|bizKey` 计算稳定的 `partitionIndex`，否则 `sendAsync` 会使用 `MathHelper.random()` 生成随机分区并仅存储消息类名，业务若需要幂等顺序应确保带 `ApiRequest` 元数据并设置 `ApiHeaders`。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysDaoMessageService.java†L266-L304】【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/message/SysEventHelper.java†L19-L69】
 38. IF 序列未在数据库配置且调用方设置 `useDefault=true` THEN `findSeqItem` 会回退 `default` 序列并重用其缓存；若 `useDefault=false` 则创建 `useUuid=true` 的占位项，后续 `generateLong/String` 返回随机值，需确保关键业务显式配置序列或开启默认回退。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L269】
-39. IF 在运行期调整数据库序列配置或新建序列 THEN 必须调用 `SysSequenceGenerator.removeCache(seqName)` 或 `clearCache()`（或等待 `defaultCache` 60 秒 TTL 失效），否则 JVM 会继续复用旧的 `SeqItem`/占位项并返回缓存值或随机 UUID，导致新配置延迟生效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
+39. IF 在运行期调整数据库序列配置或新建序列 THEN 必须调用 `SysSequenceGenerator.removeCache(seqName)` 或 `clearCache()` 清理主缓存，并知晓 `defaultCache` 无对外清除接口，只能等待 60 秒 TTL 或重启进程，否则 JVM 会继续复用旧的 `SeqItem`/占位项并返回缓存值或随机 UUID，导致新配置延迟生效。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L52-L214】
 
 ## 6. 流程（Text-Sequence）
 1. **序列生成**：加载/缓存 `SeqItem` → 若配置雪花或 UUID 则直接返回 → 否则判断缓存剩余 → 缓存不足时进入事务 `runLocal` 查询 `NopSysSequence`、锁定行、计算下一 `nextValue` 并更新数据库 → 返回当前值。【F:nop-sys/nop-sys-dao/src/main/java/io/nop/sys/dao/seq/SysSequenceGenerator.java†L178-L206】
@@ -228,6 +228,7 @@
 ## 11. 更新记录
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| v0.36 | 2024-06-17 | 明确 `removeCache` 仅清理主缓存、`defaultCache` 无公开清除接口，新增事实/规则以提醒需要等待 60 秒 TTL 或重启才能驱逐占位项；证据矩阵与路线图同步要求记录缓存失效窗口。 |
 | v0.35 | 2024-06-17 | 强调 `runLocal` 以新 Session/REQUIRES_NEW 事务刷新序列并新增“缓存占位延迟生效”用例、清缓存规则，提示修改数据库序列后需清理 JVM 缓存并关注独立事务前移的影响；证据矩阵同步加入独立事务与缓存清理取证计划。 |
 | v0.34 | 2024-06-17 | 补充 `defaultCache` 60 秒 TTL、`clearCache`/`removeCache` 缓存失效接口与“缓存占位导致配置延迟生效”边界用例，提醒在补齐数据库序列后需手动清理缓存；证据矩阵新增默认缓存验证计划。 |
 | v0.33 | 2024-06-17 | 扩展序列生成章节，记录 `SeqItem` 缓存批量递增、`syncFromDb` 锁定 `NopSysSequence` 的事务流程，以及缺失序列在 `useDefault=true/false` 下分别回退默认或随机 UUID，占位结果被缓存；新增对应事实、规则、用例与证据矩阵条目。 |

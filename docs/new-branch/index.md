@@ -23,6 +23,7 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v0.95 | 2024-06-17 | 明确 `SysSequenceGenerator` 的 `removeCache` 只能清理主缓存，`defaultCache` 需等待 60 秒 TTL 或重启才能失效，新增事实/规则/证据矩阵条目并提示默认回退在 TTL 内仍返回随机值；路线图追加序列缓存清理取证任务。 |
 | v0.94 | 2024-06-17 | 更新 `nop-sys-dao` 文档，强调 `runLocal` 在独立 Session/REQUIRES_NEW 事务中刷新序列并新增清缓存规则、缓存占位边界用例，提示修改数据库序列后需失效 JVM 缓存且关注前移造成的独立事务效应；路线图同步纳入序列独立事务与缓存清理的取证任务。 |
 | v0.93 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `defaultCache` 60 秒 TTL 与 `removeCache`/`clearCache` 缓存失效策略，新增“缓存占位导致配置延迟生效”用例与证据矩阵条目，并在路线图加入序列缓存清理调试提醒。 |
 | v0.92 | 2024-06-17 | 更新 `nop-sys-dao` 文档，梳理 `SysSequenceGenerator` 的缓存批量更新、`syncFromDb` 事务流程与 `useDefault` 回退策略，提醒缺失序列会返回默认或随机 UUID 并需补充运行证据；路线图同步新增序列取证动作。 |
