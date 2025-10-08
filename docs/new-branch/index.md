@@ -23,6 +23,7 @@
 ## 最近更新
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
+| v0.93 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `defaultCache` 60 秒 TTL 与 `removeCache`/`clearCache` 缓存失效策略，新增“缓存占位导致配置延迟生效”用例与证据矩阵条目，并在路线图加入序列缓存清理调试提醒。 |
 | v0.92 | 2024-06-17 | 更新 `nop-sys-dao` 文档，梳理 `SysSequenceGenerator` 的缓存批量更新、`syncFromDb` 事务流程与 `useDefault` 回退策略，提醒缺失序列会返回默认或随机 UUID 并需补充运行证据；路线图同步新增序列取证动作。 |
 | v0.91 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `SysEventHelper` 序列化 `ApiRequest` 元数据与普通对象随机分区的事实/规则/用例，提示需要收集事件行对比日志，并在路线图强调验证 `event_headers` 与 `partition_index`。 |
 | v0.90 | 2024-06-17 | 更新 `nop-sys-dao` 文档，补充 `ResourceLock` 默认等待/租期的覆盖路径与 `getLock` 默认窗口说明，并在路线图提示统一调整 Bean 属性以支撑长事务互斥。 |
